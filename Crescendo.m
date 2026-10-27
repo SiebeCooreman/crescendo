@@ -120,13 +120,26 @@ static SInt16 nextLevel(SInt16 v, int dir) {
 }
 
 static NSPanel *hud;
-static NSImageView *hudIcon;
+static NSTextField *hudTitle;
+static NSImageView *hudLowIcon;
+static NSView *hudTrack;
 static CALayer *hudFill;
+static NSMutableArray<CALayer *> *hudDots;
 static int hudShown;
-static const CGFloat kBarWidth = 176, kBarHeight = 7;
+static BOOL hudShowing;
+static const CGFloat kHudWidth = 292, kHudHeight = 64;
+static const CGFloat kTrackX = 38, kTrackY = 18, kTrackWidth = 214, kTrackHeight = 5;
+
+static NSImageView *symbolView(NSString *name, NSRect frame) {
+  NSImageView *v = [[NSImageView alloc] initWithFrame:frame];
+  v.image = [NSImage imageWithSystemSymbolName:name accessibilityDescription:nil];
+  v.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:13 weight:NSFontWeightMedium];
+  v.contentTintColor = NSColor.labelColor;
+  return v;
+}
 
 static void makeHud(void) {
-  hud = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 240, 48)
+  hud = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, kHudWidth, kHudHeight)
                                    styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
                                      backing:NSBackingStoreBuffered
                                        defer:NO];
@@ -135,57 +148,122 @@ static void makeHud(void) {
   hud.backgroundColor = NSColor.clearColor;
   hud.ignoresMouseEvents = YES;
   hud.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorStationary | NSWindowCollectionBehaviorFullScreenAuxiliary;
-  NSVisualEffectView *bg = [[NSVisualEffectView alloc] initWithFrame:hud.contentView.bounds];
-  bg.material = NSVisualEffectMaterialHUDWindow;
-  bg.state = NSVisualEffectStateActive;
-  bg.wantsLayer = YES;
-  bg.layer.cornerRadius = 14;
-  hud.contentView = bg;
-  hudIcon = [[NSImageView alloc] initWithFrame:NSMakeRect(14, 12, 24, 24)];
-  // A plain layer instead of NSProgressIndicator, whose built-in fill animation is slow and can't be tuned.
-  NSView *bar = [[NSView alloc] initWithFrame:NSMakeRect(48, (48 - kBarHeight) / 2, kBarWidth, kBarHeight)];
-  bar.wantsLayer = YES;
-  bar.layer.backgroundColor = [NSColor colorWithWhite:1 alpha:0.2].CGColor;
-  bar.layer.cornerRadius = kBarHeight / 2;
-  bar.layer.masksToBounds = YES;
+
+  NSView *content = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, kHudWidth, kHudHeight)];
+  content.wantsLayer = YES;
+  if (@available(macOS 26.0, *)) {
+    NSGlassEffectView *glass = [[NSGlassEffectView alloc] initWithFrame:content.frame];
+    glass.cornerRadius = 22;
+    glass.contentView = content;
+    hud.contentView = glass;
+  } else {
+    NSVisualEffectView *bg = [[NSVisualEffectView alloc] initWithFrame:content.frame];
+    bg.material = NSVisualEffectMaterialHUDWindow;
+    bg.state = NSVisualEffectStateActive;
+    bg.wantsLayer = YES;
+    bg.layer.cornerRadius = 22;
+    bg.layer.masksToBounds = YES;
+    [bg addSubview:content];
+    hud.contentView = bg;
+  }
+
+  hudTitle = [NSTextField labelWithString:@""];
+  hudTitle.font = [NSFont systemFontOfSize:14 weight:NSFontWeightSemibold];
+  hudTitle.textColor = NSColor.labelColor;
+  hudTitle.frame = NSMakeRect(16, 35, kHudWidth - 32, 18);
+  hudLowIcon = symbolView(@"speaker.fill", NSMakeRect(14, 11, 18, 18));
+  NSImageView *highIcon = symbolView(@"speaker.wave.3.fill", NSMakeRect(kTrackX + kTrackWidth + 8, 11, 26, 18));
+
+  // Plain layers instead of NSProgressIndicator, whose built-in fill animation is slow and can't be tuned.
+  hudTrack = [[NSView alloc] initWithFrame:NSMakeRect(kTrackX, kTrackY, kTrackWidth, kTrackHeight)];
+  hudTrack.wantsLayer = YES;
+  hudTrack.layer.cornerRadius = kTrackHeight / 2;
+  hudTrack.layer.masksToBounds = YES;
   hudFill = [CALayer layer];
-  hudFill.backgroundColor = NSColor.controlAccentColor.CGColor;
-  hudFill.frame = CGRectMake(0, 0, 0, kBarHeight);
-  [bar.layer addSublayer:hudFill];
-  [bg addSubview:hudIcon];
-  [bg addSubview:bar];
+  hudFill.cornerRadius = kTrackHeight / 2;
+  hudFill.frame = CGRectMake(0, 0, 0, kTrackHeight);
+  [hudTrack.layer addSublayer:hudFill];
+
+  hudDots = [NSMutableArray array];
+  for (int i = 0; i <= kSteps; i++) {
+    CALayer *dot = [CALayer layer];
+    CGFloat x = kTrackX + kTrackHeight / 2 + i * (kTrackWidth - kTrackHeight) / kSteps;
+    dot.frame = CGRectMake(x - 1, kTrackY - 7, 2, 2);
+    dot.cornerRadius = 1;
+    [content.layer addSublayer:dot];
+    [hudDots addObject:dot];
+  }
+
+  for (NSView *v in @[ hudTitle, hudLowIcon, highIcon, hudTrack ]) [content addSubview:v];
 }
 
-static void showHud(SInt16 v, BOOL muted) {
+static void showHud(SInt16 v, BOOL muted, NSString *deviceName) {
   BOOL silent = muted || v == kOff;
-  hudIcon.image = [NSImage imageWithSystemSymbolName:silent ? @"speaker.slash.fill" : @"speaker.wave.2.fill" accessibilityDescription:nil];
+  hudTitle.stringValue = deviceName;
+  hudLowIcon.image = [NSImage imageWithSystemSymbolName:silent ? @"speaker.slash.fill" : @"speaker.fill" accessibilityDescription:nil];
   CGFloat fraction = v == kOff ? 0 : (v / 256.0 - kFloorDb) / (kCeilingDb - kFloorDb);
+
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  [hud.effectiveAppearance performAsCurrentDrawingAppearance:^{
+    hudTrack.layer.backgroundColor = NSColor.tertiaryLabelColor.CGColor;
+    hudFill.backgroundColor = NSColor.labelColor.CGColor;
+    for (CALayer *dot in hudDots) dot.backgroundColor = NSColor.tertiaryLabelColor.CGColor;
+  }];
+  [CATransaction commit];
+
   [CATransaction begin];
   [CATransaction setAnimationDuration:0.06];
-  hudFill.frame = CGRectMake(0, 0, kBarWidth * fraction, kBarHeight);
+  hudFill.frame = CGRectMake(0, 0, kTrackWidth * fraction, kTrackHeight);
   [CATransaction commit];
+
   NSRect screen = NSScreen.mainScreen.visibleFrame;
-  [hud setFrameOrigin:NSMakePoint(NSMaxX(screen) - 252, NSMaxY(screen) - 60)];
-  [hud orderFrontRegardless];
+  NSRect shownFrame = NSMakeRect(NSMaxX(screen) - kHudWidth - 10, NSMaxY(screen) - kHudHeight - 8, kHudWidth, kHudHeight);
+  NSRect tuckedFrame = NSOffsetRect(shownFrame, 0, 12);
+  if (!hudShowing) {
+    hudShowing = YES;
+    if (!hud.isVisible) {
+      hud.alphaValue = 0;
+      [hud setFrame:tuckedFrame display:NO];
+      [hud orderFrontRegardless];
+    }
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *c) {
+      c.duration = 0.22;
+      c.timingFunction = [CAMediaTimingFunction functionWithControlPoints:0.2 :0.9 :0.25 :1];
+      hud.animator.alphaValue = 1;
+      [hud.animator setFrame:shownFrame display:YES];
+    }];
+  }
   // Draw now, before the USB write blocks the run loop.
   [hud displayIfNeeded];
   [CATransaction flush];
+
   int shown = ++hudShown;
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-    if (shown == hudShown) [hud orderOut:nil];
+    if (shown != hudShown) return;
+    hudShowing = NO;
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *c) {
+      c.duration = 0.3;
+      c.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseIn];
+      hud.animator.alphaValue = 0;
+      [hud.animator setFrame:tuckedFrame display:YES];
+    } completionHandler:^{
+      // A key press during the fade-out has brought it back; leave it on screen.
+      if (!hudShowing) [hud orderOut:nil];
+    }];
   });
 }
 
-static BOOL iD14IsDefaultOutput(void) {
+static NSString *defaultOutputName(void) {
   AudioObjectPropertyAddress a = {kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
   AudioDeviceID d;
   UInt32 n = sizeof d;
-  if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &a, 0, NULL, &n, &d)) return NO;
+  if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &a, 0, NULL, &n, &d)) return nil;
   a.mSelector = kAudioObjectPropertyName;
   CFStringRef name = NULL;
   n = sizeof name;
-  if (AudioObjectGetPropertyData(d, &a, 0, NULL, &n, &name)) return NO;
-  return [CFBridgingRelease(name) hasPrefix:@"Audient iD14"];
+  if (AudioObjectGetPropertyData(d, &a, 0, NULL, &n, &name)) return nil;
+  return CFBridgingRelease(name);
 }
 
 static CGEventRef onEvent(CGEventTapProxy proxy, CGEventType type, CGEventRef e, void *ctx) {
@@ -198,18 +276,19 @@ static CGEventRef onEvent(CGEventTapProxy proxy, CGEventType type, CGEventRef e,
   int key = (int)((ev.data1 & 0xffff0000) >> 16);
   BOOL down = ((ev.data1 & 0xff00) >> 8) == 0x0a;
   if (key != NX_KEYTYPE_SOUND_UP && key != NX_KEYTYPE_SOUND_DOWN && key != NX_KEYTYPE_MUTE) return e;
-  if (!iD14IsDefaultOutput() || !connectDevice()) return e;
+  NSString *output = defaultOutputName();
+  if (![output hasPrefix:@"Audient iD14"] || !connectDevice()) return e;
   SInt16 v;
   UInt8 m = 0;
   // Read before every write: the knob may have moved since the last press.
   if (!down || !readState(&v, &m)) return NULL;
   if (key == NX_KEYTYPE_MUTE) {
     m = !m;
-    showHud(v, m);
+    showHud(v, m, output);
     request(0x21, 0x0400, &m, 1);
   } else {
     SInt16 next = nextLevel(v, key == NX_KEYTYPE_SOUND_UP ? 1 : -1);
-    showHud(next, m);
+    showHud(next, m, output);
     writeVolume(next);
   }
   return NULL;

@@ -15,7 +15,7 @@ output and turns the interface's own monitor volume, the same one the big knob c
 
 - **Volume up / down** in 16 steps, like the built-in volume keys.
 - **Mute** toggles the monitor mute.
-- **An on-screen volume bar** shows the level on every press.
+- **A native-style volume bar** (Liquid Glass on macOS 26 and later) shows the level on every press.
 - **Remembers your volume** when you unplug the iD14 and plug it back in.
 - **Leaves everything else alone.** No virtual audio device, no rerouting: your audio still goes
   straight to the iD14. With any other output selected, the keys work as normal.
