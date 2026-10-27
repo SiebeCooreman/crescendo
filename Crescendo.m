@@ -10,8 +10,8 @@
 // Protocol from github.com/baakhoff/BiD docs/PROTOCOL.md: monitor section is unit 0x36,
 // volume selector 0x12 (int16, 1/256 dB, 0x8000 = off), mute selector 0x04 (1 byte).
 static const int kSteps = 16;
-static const int kFloorDb = -60;
-static const int kCeilingDb = 0;
+static const int kFloorDb = -80;
+static const int kCeilingDb = -20;
 static const SInt16 kOff = INT16_MIN;
 
 static NSString *const kSavedVolume = @"volume";
@@ -113,6 +113,8 @@ static void onArrival(void *ctx, io_iterator_t it) {
 
 // Snaps to the next of 16 equal steps, so a knob position between steps still moves one step.
 static SInt16 nextLevel(SInt16 v, int dir) {
+  // Louder than the top step only happens by the knob; volume up must not pull it back down.
+  if (dir > 0 && v > kCeilingDb * 256) return v;
   double x = v == kOff ? 0 : (v / 256.0 - kFloorDb) * kSteps / (kCeilingDb - kFloorDb);
   int n = dir > 0 ? MAX((int)floor(x) + 1, 1) : (int)ceil(x) - 1;
   n = MIN(MAX(n, 0), kSteps);
@@ -201,7 +203,7 @@ static void showHud(SInt16 v, BOOL muted, NSString *deviceName) {
   BOOL silent = muted || v == kOff;
   hudTitle.stringValue = deviceName;
   hudLowIcon.image = [NSImage imageWithSystemSymbolName:silent ? @"speaker.slash.fill" : @"speaker.fill" accessibilityDescription:nil];
-  CGFloat fraction = v == kOff ? 0 : (v / 256.0 - kFloorDb) / (kCeilingDb - kFloorDb);
+  CGFloat fraction = v == kOff ? 0 : MIN((v / 256.0 - kFloorDb) / (kCeilingDb - kFloorDb), 1);
 
   [CATransaction begin];
   [CATransaction setDisableActions:YES];

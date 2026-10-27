@@ -49,7 +49,7 @@ interface's spare DFU interface, which no driver claims, so playback is never in
 | Monitor mute   | unit `0x36`, selector `0x04`, 1 byte                             |
 
 Safety: before every change Crescendo reads the current level, so a knob turn is never overwritten,
-and it never sets the level above 0 dB, the knob's own maximum.
+and the keys never set the level above −20 dB; louder than that is up to the knob.
 
 The protocol was reverse engineered by the Linux projects [MixiD](https://github.com/TheOnlyJoey/MixiD),
 [BiD](https://github.com/baakhoff/BiD) and [Monix](https://github.com/sKuhLight/monix). Crescendo
