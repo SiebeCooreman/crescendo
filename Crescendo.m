@@ -123,7 +123,7 @@ static NSPanel *hud;
 static NSImageView *hudIcon;
 static CALayer *hudFill;
 static int hudShown;
-static const CGFloat kBarWidth = 176, kBarHeight = 12;
+static const CGFloat kBarWidth = 176, kBarHeight = 7;
 
 static void makeHud(void) {
   hud = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 240, 48)
@@ -143,7 +143,7 @@ static void makeHud(void) {
   hud.contentView = bg;
   hudIcon = [[NSImageView alloc] initWithFrame:NSMakeRect(14, 12, 24, 24)];
   // A plain layer instead of NSProgressIndicator, whose built-in fill animation is slow and can't be tuned.
-  NSView *bar = [[NSView alloc] initWithFrame:NSMakeRect(48, 18, kBarWidth, kBarHeight)];
+  NSView *bar = [[NSView alloc] initWithFrame:NSMakeRect(48, (48 - kBarHeight) / 2, kBarWidth, kBarHeight)];
   bar.wantsLayer = YES;
   bar.layer.backgroundColor = [NSColor colorWithWhite:1 alpha:0.2].CGColor;
   bar.layer.cornerRadius = kBarHeight / 2;
