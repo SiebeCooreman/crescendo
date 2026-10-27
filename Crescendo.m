@@ -121,8 +121,9 @@ static SInt16 nextLevel(SInt16 v, int dir) {
 
 static NSPanel *hud;
 static NSImageView *hudIcon;
-static NSProgressIndicator *hudBar;
+static CALayer *hudFill;
 static int hudShown;
+static const CGFloat kBarWidth = 176, kBarHeight = 12;
 
 static void makeHud(void) {
   hud = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 240, 48)
@@ -141,18 +142,28 @@ static void makeHud(void) {
   bg.layer.cornerRadius = 14;
   hud.contentView = bg;
   hudIcon = [[NSImageView alloc] initWithFrame:NSMakeRect(14, 12, 24, 24)];
-  hudBar = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(48, 18, 176, 12)];
-  hudBar.style = NSProgressIndicatorStyleBar;
-  hudBar.indeterminate = NO;
-  hudBar.maxValue = 1;
+  // A plain layer instead of NSProgressIndicator, whose built-in fill animation is slow and can't be tuned.
+  NSView *bar = [[NSView alloc] initWithFrame:NSMakeRect(48, 18, kBarWidth, kBarHeight)];
+  bar.wantsLayer = YES;
+  bar.layer.backgroundColor = [NSColor colorWithWhite:1 alpha:0.2].CGColor;
+  bar.layer.cornerRadius = kBarHeight / 2;
+  bar.layer.masksToBounds = YES;
+  hudFill = [CALayer layer];
+  hudFill.backgroundColor = NSColor.controlAccentColor.CGColor;
+  hudFill.frame = CGRectMake(0, 0, 0, kBarHeight);
+  [bar.layer addSublayer:hudFill];
   [bg addSubview:hudIcon];
-  [bg addSubview:hudBar];
+  [bg addSubview:bar];
 }
 
 static void showHud(SInt16 v, BOOL muted) {
   BOOL silent = muted || v == kOff;
   hudIcon.image = [NSImage imageWithSystemSymbolName:silent ? @"speaker.slash.fill" : @"speaker.wave.2.fill" accessibilityDescription:nil];
-  hudBar.doubleValue = v == kOff ? 0 : (v / 256.0 - kFloorDb) / (kCeilingDb - kFloorDb);
+  CGFloat fraction = v == kOff ? 0 : (v / 256.0 - kFloorDb) / (kCeilingDb - kFloorDb);
+  [CATransaction begin];
+  [CATransaction setAnimationDuration:0.06];
+  hudFill.frame = CGRectMake(0, 0, kBarWidth * fraction, kBarHeight);
+  [CATransaction commit];
   NSRect screen = NSScreen.mainScreen.visibleFrame;
   [hud setFrameOrigin:NSMakePoint(NSMaxX(screen) - 252, NSMaxY(screen) - 60)];
   [hud orderFrontRegardless];
